@@ -1,6 +1,9 @@
-/target/
+/build/
 /dist/
 /tests/
-*.log
 *.exe
+*.obj
+*.pdb
+*.ilk
+*.log
 *.zip
