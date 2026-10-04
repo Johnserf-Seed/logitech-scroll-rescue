@@ -1,6 +1,8 @@
 # Scroll Rescue · 罗技滚轮恢复
 
-退出瓦洛兰特后，罗技鼠标仍持续滚动时，可使用本工具尝试恢复 USB 接收器。提供中文 GUI 和命令行入口。
+[English](README.en.md) · 简体中文
+
+退出瓦洛兰特后，罗技鼠标仍持续滚动时，可使用本工具尝试恢复 USB 接收器。提供中英文 GUI 和命令行入口。
 
 ## 使用 GUI
 
@@ -9,6 +11,14 @@
 恢复过程中鼠标会短暂断连。完成后请实际测试滚轮；设备恢复在线不代表已自动验证滚轮症状消失。
 
 顶部栏采用自绘样式。拖动顶部栏移动窗口，右上角按钮用于最小化、关闭。支持 Tab 切换控件、Enter 执行按钮；设备列表支持方向键和 Esc 关闭。
+
+点击顶部的语言按钮，选择 **跟随系统**、**简体中文** 或 **English**，立即切换并记住选择。首次打开时跟随 Windows 显示语言；中文系统使用简体中文，其他语言使用英语。按钮、状态、操作记录和错误提示都会切换，设备名称使用 Windows 提供的名称。
+
+也可仅为本次打开指定语言：
+
+```powershell
+Start-Process .\scroll-rescue.exe -ArgumentList '--lang en'
+```
 
 支持 Windows 10 2004 及以上版本、Windows 11，x64。适用于 USB 连接的罗技设备，蓝牙设备不在恢复范围内。
 
@@ -20,6 +30,10 @@
 # 查看设备
 .\scroll-rescue-cli.ps1 devices
 .\scroll-rescue-cli.ps1 devices --json
+
+# 仅为本次命令选择语言
+.\scroll-rescue-cli.ps1 --lang en devices
+.\scroll-rescue-cli.ps1 repair --dry-run --lang zh-CN
 
 # 只预览将执行的命令
 .\scroll-rescue-cli.ps1 repair --dry-run
@@ -40,6 +54,8 @@
 ```
 
 `--device` 可重复使用；与 `--all` 不能同时使用。只有一个设备时可直接运行 `repair`，多个设备时需要明确选择。
+
+`--lang auto|zh-CN|en` 可放在命令前后，只影响本次运行；默认使用已保存的语言选择。`auto` 跟随 Windows 显示语言。`--json` 的字段名和退出码在不同语言下保持一致。
 
 直接使用 EXE 时也支持相同参数。PowerShell 中请等待进程完成再检查退出码，例如：
 

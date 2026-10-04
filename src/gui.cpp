@@ -3,13 +3,13 @@
 
 namespace {
 constexpr int WIDTH = 600, HEIGHT = 620;
-constexpr unsigned REPAIR = 101, REFRESH = 102, SELECTOR = 103, DEVICE_LIST = 104, MINIMIZE = 105, CLOSE = 106;
+constexpr unsigned REPAIR = 101, REFRESH = 102, SELECTOR = 103, DEVICE_LIST = 104, MINIMIZE = 105, CLOSE = 106, LANGUAGE = 107, LANGUAGE_LIST = 108;
 constexpr UINT WORK_DONE = WM_APP + 1;
 constexpr COLORREF BG = RGB(15, 20, 29), CARD = RGB(24, 32, 45), BORDER = RGB(43, 55, 73);
 constexpr COLORREF TEXT = RGB(235, 240, 248), MUTED = RGB(155, 170, 191), GREEN = RGB(105, 231, 178), AMBER = RGB(246, 195, 104), RED = RGB(255, 144, 144);
 
 struct App {
-    HWND window, selector, repair, refresh, minimize, close, list, hover;
+    HWND window, selector, repair, refresh, minimize, close, list, language, languages, hover;
     HFONT font;
     HBRUSH brush;
     HICON icon, small_icon, caption_icon;
@@ -17,9 +17,7 @@ struct App {
     DeviceList devices{};
     int selected = -1;
     bool busy = false, repairing = false;
-    wchar_t headline[128] = L"正在查找设备";
-    wchar_t detail[512] = L"请稍候，正在读取已连接的罗技 USB 设备。";
-    wchar_t logs[2][256]{};
+    Message headline{Text::Searching}, detail{Text::SearchingDetail}, logs[2]{};
     COLORREF status_color = MUTED;
 #ifdef SCROLL_RESCUE_QA
     wchar_t snapshot[32768]{};
@@ -29,7 +27,7 @@ struct App {
 } app;
 WNDPROC button_proc = nullptr;
 struct Job { HWND owner; bool restart; wchar_t id[MAX_DEVICE_ID_LEN]; };
-struct Outcome { bool restart, success; unsigned code; DeviceList devices; wchar_t error[512]; };
+struct Outcome { bool restart, success; unsigned code; DeviceList devices; Message error; };
 
 int n(int value) { return MulDiv(value, static_cast<int>(app.scale), 100); }
 bool load_icons(HINSTANCE instance) {
@@ -47,8 +45,9 @@ bool load_icons(HINSTANCE instance) {
     return true;
 }
 RECT area(int x, int y, int width, int height) { return {n(x), n(y), n(x + width), n(y + height)}; }
-void log(const wchar_t* message) { copy_text(app.logs[0], 256, app.logs[1]); copy_text(app.logs[1], 256, message); }
-HFONT font(int size, int weight = 400) { return CreateFontW(-n(size), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI"); }
+void log(Message message) { app.logs[0] = app.logs[1]; app.logs[1] = message; }
+void log(Text key) { log(Message{key}); }
+HFONT font(int size, int weight = 400) { return CreateFontW(-n(size), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, current_language() == Language::Chinese ? L"Microsoft YaHei UI" : L"Segoe UI"); }
 void fill(HDC dc, const RECT& rectangle, COLORREF color) {
     const HBRUSH brush = CreateSolidBrush(color); FillRect(dc, &rectangle, brush); DeleteObject(brush);
 }
@@ -71,36 +70,42 @@ void stroke(HDC dc, int x1, int y1, int x2, int y2, COLORREF color, int width = 
 void device_label(wchar_t* output, unsigned capacity) {
     if (app.selected >= 0 && static_cast<unsigned>(app.selected) < app.devices.count) {
         const Device& device = app.devices.items[app.selected];
-        copy_text(output, capacity, device.name); append_text(output, capacity, device.healthy ? L"  ·  在线" : L"  ·  状态异常");
-    } else copy_text(output, capacity, L"选择鼠标对应的 USB 设备…");
+        copy_text(output, capacity, device_name(device)); append_text(output, capacity, tr(device.healthy ? Text::OnlineSuffix : Text::UnhealthySuffix));
+    } else copy_text(output, capacity, tr(Text::SelectDevice));
+}
+const wchar_t* language_label() {
+    if (language_preference() == Language::Automatic) return tr(current_language() == Language::Chinese ? Text::AutoChinese : Text::AutoEnglish);
+    return tr(current_language() == Language::Chinese ? Text::ChineseLanguage : Text::EnglishLanguage);
 }
 
 void draw(HDC dc) {
     fill(dc, area(0, 0, WIDTH, HEIGHT), BG);
     DrawIconEx(dc, n(21), n(14), app.caption_icon, n(24), n(24), 0, nullptr, DI_NORMAL);
-    text(dc, L"SCROLL RESCUE", area(55, 17, 320, 24), 12, 700, TEXT);
-    text(dc, L"v0.2", area(422, 18, 62, 22), 11, 400, MUTED, DT_RIGHT | DT_SINGLELINE);
+    text(dc, L"SCROLL RESCUE", area(55, 17, 220, 24), 12, 700, TEXT);
+    text(dc, L"v0.3", area(278, 18, 42, 22), 11, 400, MUTED, DT_RIGHT | DT_SINGLELINE);
     stroke(dc, 24, 52, 576, 52, BORDER);
-    text(dc, L"让滚轮恢复正常。", area(24, 76, 552, 43), 29, 700);
-    text(dc, L"退出瓦洛兰特后持续滚动？试着恢复鼠标接收器。", area(26, 127, 550, 25), 14, 400, MUTED);
+    text(dc, tr(Text::HeroTitle), area(24, 76, 552, 43), 29, 700);
+    text(dc, tr(Text::HeroSubtitle), area(26, 127, 550, 25), 14, 400, MUTED);
     panel(dc, area(24, 168, 552, 139), CARD, BORDER);
-    text(dc, L"目标设备", area(42, 183, 340, 23), 13, 600);
-    wchar_t count[48]{}; append_number(count, 48, app.devices.count); append_text(count, 48, L" 个已连接");
+    text(dc, tr(Text::TargetDevice), area(42, 183, 340, 23), 13, 600);
+    wchar_t count[48]{}; format_message({Text::ConnectedCount, app.devices.count, MessageFormat::Count}, count, 48);
     text(dc, count, area(422, 183, 136, 23), 12, 400, MUTED, DT_SINGLELINE | DT_RIGHT);
-    const wchar_t* id = app.selected >= 0 && static_cast<unsigned>(app.selected) < app.devices.count ? app.devices.items[app.selected].id : L"等待选择设备";
+    const wchar_t* id = app.selected >= 0 && static_cast<unsigned>(app.selected) < app.devices.count ? app.devices.items[app.selected].id : tr(Text::WaitingSelection);
     text(dc, id, area(42, 253, 516, 19), 11, 400, MUTED, DT_SINGLELINE | DT_END_ELLIPSIS);
-    text(dc, L"恢复时会短暂断连，请确认选择鼠标对应的设备。", area(42, 279, 516, 20), 12, 400, MUTED);
-    text(dc, L"按需申请管理员权限 · 建议退出游戏后使用", area(24, 387, 552, 20), 11, 400, MUTED, DT_SINGLELINE | DT_CENTER);
+    text(dc, tr(Text::DisconnectHint), area(42, 279, 516, 20), 12, 400, MUTED);
+    text(dc, tr(Text::AdminHint), area(24, 387, 552, 20), 11, 400, MUTED, DT_SINGLELINE | DT_CENTER);
     panel(dc, area(24, 421, 552, 95), CARD, BORDER);
     panel(dc, area(42, 441, 8, 8), app.status_color, app.status_color, 8);
-    text(dc, app.headline, area(60, 432, 498, 28), 18, 600, app.status_color);
-    text(dc, app.detail, area(42, 465, 516, 41), 13, 400, MUTED, DT_WORDBREAK);
-    text(dc, L"操作记录", area(26, 535, 540, 20), 12, 600, MUTED);
-    for (int i = 0; i < 2; ++i) if (app.logs[i][0]) {
-        wchar_t line[260] = L"·  "; append_text(line, 260, app.logs[i]);
+    wchar_t message[512]{}; format_message(app.headline, message, 512);
+    text(dc, message, area(60, 432, 498, 28), 18, 600, app.status_color);
+    format_message(app.detail, message, 512);
+    text(dc, message, area(42, 465, 516, 41), 13, 400, MUTED, DT_WORDBREAK);
+    text(dc, tr(Text::ActivityLog), area(26, 535, 540, 20), 12, 600, MUTED);
+    for (int i = 0; i < 2; ++i) if (app.logs[i].key != Text::None) {
+        wchar_t line[260] = L"·  "; format_message(app.logs[i], message, 512); append_text(line, 260, message);
         text(dc, line, area(26, 559 + i * 23, 548, 22), 12, 400, TEXT, DT_SINGLELINE | DT_END_ELLIPSIS);
     }
-    text(dc, L"USB 接收器  /  支持命令行操作", area(24, 600, 552, 17), 10, 400, MUTED, DT_SINGLELINE | DT_CENTER);
+    text(dc, tr(Text::Footer), area(24, 600, 552, 17), 10, 400, MUTED, DT_SINGLELINE | DT_CENTER);
 }
 
 void draw_button(const DRAWITEMSTRUCT& item) {
@@ -120,23 +125,28 @@ void draw_button(const DRAWITEMSTRUCT& item) {
     const bool primary = item.CtlID == REPAIR;
     const COLORREF background = !enabled ? RGB(34, 44, 58) : primary ? (pressed ? RGB(73, 193, 144) : GREEN) : (hovered || pressed ? RGB(34, 47, 65) : CARD);
     panel(item.hDC, item.rcItem, background, primary && enabled ? background : BORDER, item.CtlID == SELECTOR ? 6 : 12);
-    if (item.CtlID == SELECTOR) {
+    if (item.CtlID == LANGUAGE) {
+        RECT label = item.rcItem; label.right -= n(14);
+        text(item.hDC, language_label(), label, 11, 400, enabled ? TEXT : MUTED, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+        label.left = label.right - n(1); label.right = item.rcItem.right - n(3);
+        text(item.hDC, L"⌄", label, 12, 400, enabled ? MUTED : BORDER, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+    } else if (item.CtlID == SELECTOR) {
         wchar_t label[180]{}; device_label(label, 180);
         RECT rectangle = item.rcItem; rectangle.left += n(10); rectangle.right -= n(32);
         text(item.hDC, label, rectangle, 14, 400, enabled ? TEXT : MUTED, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
         rectangle = item.rcItem; rectangle.left = rectangle.right - n(28);
         text(item.hDC, L"⌄", rectangle, 14, 400, MUTED, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
     } else {
-        const wchar_t* label = primary ? (app.repairing ? L"正在恢复…" : L"恢复滚轮") : (app.busy && !app.repairing ? L"正在扫描…" : L"刷新设备");
+        const wchar_t* label = tr(primary ? (app.repairing ? Text::RepairingButton : Text::RepairButton) : (app.busy && !app.repairing ? Text::ScanningButton : Text::RefreshButton));
         text(item.hDC, label, item.rcItem, 17, 600, !enabled ? MUTED : primary ? RGB(9, 45, 32) : TEXT, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
     }
     if (item.itemState & ODS_FOCUS) { RECT focus = item.rcItem; InflateRect(&focus, -n(4), -n(4)); DrawFocusRect(item.hDC, &focus); }
 }
 
-void hide_list() { ShowWindow(app.list, SW_HIDE); }
+void hide_list() { ShowWindow(app.list, SW_HIDE); ShowWindow(app.languages, SW_HIDE); }
 void controls() {
     const HFONT old = app.font; app.font = font(14);
-    const HWND handles[] = {app.selector, app.repair, app.refresh, app.minimize, app.close, app.list};
+    const HWND handles[] = {app.selector, app.repair, app.refresh, app.minimize, app.close, app.list, app.language, app.languages};
     for (HWND handle : handles) SendMessageW(handle, WM_SETFONT, reinterpret_cast<WPARAM>(app.font), FALSE);
     if (old) DeleteObject(old);
     MoveWindow(app.selector, n(42), n(211), n(516), n(33), FALSE);
@@ -144,11 +154,19 @@ void controls() {
     MoveWindow(app.refresh, n(416), n(327), n(160), n(50), FALSE);
     MoveWindow(app.minimize, n(493), n(10), n(36), n(32), FALSE);
     MoveWindow(app.close, n(542), n(10), n(36), n(32), FALSE);
+    MoveWindow(app.language, n(342), n(10), n(136), n(32), FALSE);
     SendMessageW(app.list, LB_SETITEMHEIGHT, 0, n(46));
+    SendMessageW(app.languages, LB_SETITEMHEIGHT, 0, n(32));
     EnableWindow(app.selector, !app.busy && app.devices.count);
     EnableWindow(app.repair, !app.busy && app.selected >= 0);
     EnableWindow(app.refresh, !app.busy); EnableWindow(app.close, !app.repairing);
+    EnableWindow(app.language, !app.busy);
     wchar_t label[180]{}; device_label(label, 180); SetWindowTextW(app.selector, label);
+    SetWindowTextW(app.window, tr(Text::WindowTitle));
+    SetWindowTextW(app.repair, tr(app.repairing ? Text::RepairingButton : Text::RepairButton));
+    SetWindowTextW(app.refresh, tr(app.busy && !app.repairing ? Text::ScanningButton : Text::RefreshButton));
+    SetWindowTextW(app.minimize, tr(Text::Minimize)); SetWindowTextW(app.close, tr(Text::Close));
+    SetWindowTextW(app.list, tr(Text::DeviceList)); SetWindowTextW(app.language, language_label()); SetWindowTextW(app.languages, tr(Text::Language));
     InvalidateRect(app.window, nullptr, FALSE);
     for (HWND handle : handles) InvalidateRect(handle, nullptr, FALSE);
 }
@@ -174,25 +192,25 @@ void start_work(bool restart) {
     if (app.busy || (restart && app.selected < 0)) return;
     hide_list();
     auto job = static_cast<Job*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Job)));
-    if (!job) { copy_text(app.headline, 128, L"操作未完成"); copy_text(app.detail, 512, L"没有足够内存执行操作。"); app.status_color = RED; controls(); return; }
+    if (!job) { app.headline = {Text::NotCompleted}; app.detail = {Text::OperationMemory}; app.status_color = RED; controls(); return; }
     job->owner = app.window; job->restart = restart;
     if (restart) copy_text(job->id, MAX_DEVICE_ID_LEN, app.devices.items[app.selected].id);
     app.busy = true; app.repairing = restart; app.status_color = restart ? AMBER : MUTED;
-    copy_text(app.headline, 128, restart ? L"正在恢复设备" : L"正在查找设备");
-    copy_text(app.detail, 512, restart ? L"请允许 Windows 权限提示。鼠标会短暂断连，恢复后请测试滚轮。" : L"请稍候，正在读取已连接的罗技 USB 设备。");
-    if (restart) log(L"开始恢复所选设备");
+    app.headline = {restart ? Text::Restoring : Text::Searching};
+    app.detail = {restart ? Text::RestoringDetail : Text::SearchingDetail};
+    if (restart) log(Text::StartRepairLog);
     const HANDLE thread = CreateThread(nullptr, 0, work, job, 0, nullptr);
     if (thread) CloseHandle(thread);
     else {
         HeapFree(GetProcessHeap(), 0, job); app.busy = false; app.repairing = false;
-        copy_text(app.headline, 128, L"操作未完成"); copy_text(app.detail, 512, L"无法启动操作，请稍后重试。"); app.status_color = RED;
+        app.headline = {Text::NotCompleted}; app.detail = {Text::StartFailed}; app.status_color = RED;
     }
     controls();
 }
 void done(Outcome* outcome) {
     app.busy = false; app.repairing = false;
     if (!outcome) {
-        copy_text(app.headline, 128, L"操作未完成"); copy_text(app.detail, 512, L"操作意外结束，请刷新后重试。"); app.status_color = RED; controls(); return;
+        app.headline = {Text::NotCompleted}; app.detail = {Text::UnexpectedEnd}; app.status_color = RED; controls(); return;
     }
     if (!outcome->restart) {
         wchar_t previous[MAX_DEVICE_ID_LEN]{};
@@ -201,29 +219,45 @@ void done(Outcome* outcome) {
         if (outcome->success) {
             for (unsigned i = 0; i < app.devices.count; ++i) if (equal_id(previous, app.devices.items[i].id)) app.selected = static_cast<int>(i);
             if (app.selected < 0 && app.devices.count == 1) app.selected = 0;
-            copy_text(app.headline, 128, !app.devices.count ? L"未找到罗技 USB 设备" : app.selected < 0 ? L"请选择设备" : L"准备就绪");
-            copy_text(app.detail, 512, !app.devices.count ? L"请插入鼠标接收器，再点击「刷新设备」。" : L"退出游戏后，选择鼠标对应的设备，点击「恢复滚轮」。");
+            app.headline = {!app.devices.count ? Text::NoDevicesTitle : app.selected < 0 ? Text::ChooseTitle : Text::Ready};
+            app.detail = {!app.devices.count ? Text::NoDevicesDetail : Text::ReadyDetail};
             app.status_color = app.devices.count ? GREEN : AMBER;
-            wchar_t message[80] = L"检测到 "; append_number(message, 80, app.devices.count); append_text(message, 80, L" 个罗技 USB 设备"); log(message);
-        } else { copy_text(app.headline, 128, L"设备查询失败"); copy_text(app.detail, 512, outcome->error); app.status_color = RED; log(L"查询失败，请刷新后重试"); }
+            log({app.devices.count == 1 ? Text::FoundOne : Text::FoundMany, app.devices.count, MessageFormat::Count});
+        } else { app.headline = {Text::QueryFailedTitle}; app.detail = outcome->error; app.status_color = RED; log(Text::QueryFailedLog); }
     } else {
         const unsigned code = outcome->code;
-        copy_text(app.headline, 128, !code ? L"设备已恢复在线" : code == 4 ? L"已取消操作" : code == 7 ? L"需要重启电脑" : L"恢复未完成");
-        copy_text(app.detail, 512, outcome->error[0] ? outcome->error : result_message(code));
+        app.headline = {!code ? Text::RestoredTitle : code == 4 ? Text::CancelledTitle : code == 7 ? Text::RebootTitle : Text::IncompleteTitle};
+        app.detail = outcome->error.key != Text::None ? outcome->error : Message{result_text(code)};
         app.status_color = !code ? GREEN : code == 4 || code == 6 || code == 7 ? AMBER : RED;
-        log(!code ? L"设备重启完成，请实际测试滚轮" : code == 4 ? L"已取消管理员授权" : L"操作结束，请查看上方结果");
+        log(!code ? Text::RestoredLog : code == 4 ? Text::CancelledLog : Text::FinishedLog);
     }
     HeapFree(GetProcessHeap(), 0, outcome); controls();
 }
 void choose(unsigned index) {
     hide_list(); if (index >= app.devices.count) return;
     app.selected = static_cast<int>(index); app.status_color = GREEN;
-    copy_text(app.headline, 128, L"准备就绪"); copy_text(app.detail, 512, L"退出游戏后，点击「恢复滚轮」恢复所选设备。"); controls(); SetFocus(app.selector);
+    app.headline = {Text::Ready}; app.detail = {Text::ReadyDetail}; controls(); SetFocus(app.selector);
+}
+void choose_language(unsigned index) {
+    if (app.busy || index > static_cast<unsigned>(Language::English)) return;
+    hide_list(); set_language(static_cast<Language>(index));
+    log(save_language() ? Text::LanguageSaved : Text::LanguageNotSaved);
+    controls(); SetFocus(app.language);
+}
+void show_languages() {
+    if (IsWindowVisible(app.languages)) { hide_list(); return; }
+    hide_list(); SendMessageW(app.languages, LB_RESETCONTENT, 0, 0);
+    const wchar_t* labels[] = {tr(Text::AutoLanguage), tr(Text::ChineseLanguage), tr(Text::EnglishLanguage)};
+    for (const wchar_t* label : labels) SendMessageW(app.languages, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label));
+    SendMessageW(app.languages, LB_SETCURSEL, static_cast<WPARAM>(language_preference()), 0);
+    SetWindowPos(app.languages, HWND_TOP, n(334), n(44), n(152), n(100), SWP_SHOWWINDOW);
+    SetFocus(app.languages);
 }
 void show_list() {
     if (IsWindowVisible(app.list)) { hide_list(); return; }
+    hide_list();
     SendMessageW(app.list, LB_RESETCONTENT, 0, 0);
-    for (unsigned i = 0; i < app.devices.count; ++i) SendMessageW(app.list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(app.devices.items[i].name));
+    for (unsigned i = 0; i < app.devices.count; ++i) SendMessageW(app.list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(device_name(app.devices.items[i])));
     SendMessageW(app.list, LB_SETCURSEL, app.selected >= 0 ? static_cast<WPARAM>(app.selected) : 0, 0);
     const unsigned rows = app.devices.count < 5 ? app.devices.count : 5;
     SetWindowPos(app.list, HWND_TOP, n(42), n(246), n(516), n(static_cast<int>(rows) * 46 + 4), SWP_SHOWWINDOW);
@@ -301,7 +335,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         return DefWindowProcW(window, message, wparam, lparam);
     case WM_NCHITTEST: {
         POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)}; ScreenToClient(window, &point);
-        if (point.y >= 0 && point.y < n(52) && point.x < n(486)) return HTCAPTION;
+        if (point.y >= 0 && point.y < n(52) && point.x < n(334)) return HTCAPTION;
         return HTCLIENT;
     }
     case WM_CREATE: {
@@ -309,16 +343,18 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         const HINSTANCE instance = reinterpret_cast<CREATESTRUCTW*>(lparam)->hInstance;
         SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(app.icon));
         SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(app.small_icon));
-        app.selector = make_button(window, instance, SELECTOR, L"选择设备");
-        app.repair = make_button(window, instance, REPAIR, L"恢复滚轮"); app.refresh = make_button(window, instance, REFRESH, L"刷新设备");
-        app.minimize = make_button(window, instance, MINIMIZE, L"最小化"); app.close = make_button(window, instance, CLOSE, L"关闭");
-        app.list = CreateWindowExW(0, L"LISTBOX", L"设备列表", WS_CHILD | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS, 0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(DEVICE_LIST)), instance, nullptr);
+        app.selector = make_button(window, instance, SELECTOR, tr(Text::SelectDevice));
+        app.repair = make_button(window, instance, REPAIR, tr(Text::RepairButton)); app.refresh = make_button(window, instance, REFRESH, tr(Text::RefreshButton));
+        app.minimize = make_button(window, instance, MINIMIZE, tr(Text::Minimize)); app.close = make_button(window, instance, CLOSE, tr(Text::Close));
+        app.language = make_button(window, instance, LANGUAGE, language_label());
+        app.list = CreateWindowExW(0, L"LISTBOX", tr(Text::DeviceList), WS_CHILD | WS_BORDER | WS_VSCROLL | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS, 0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(DEVICE_LIST)), instance, nullptr);
+        app.languages = CreateWindowExW(0, L"LISTBOX", tr(Text::Language), WS_CHILD | WS_BORDER | LBS_NOTIFY | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS, 0, 0, 0, 0, window, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(LANGUAGE_LIST)), instance, nullptr);
         app.brush = CreateSolidBrush(CARD);
-        if (!app.selector || !app.repair || !app.refresh || !app.minimize || !app.close || !app.list || !app.brush) return -1;
+        if (!app.selector || !app.repair || !app.refresh || !app.minimize || !app.close || !app.list || !app.language || !app.languages || !app.brush) return -1;
 #ifdef SCROLL_RESCUE_QA
         if (app.qa && !app.qa_live) {
             app.devices.count = 1; copy_text(app.devices.items[0].id, MAX_DEVICE_ID_LEN, L"USB\\VID_046D&PID_C54D\\DEMO"); copy_text(app.devices.items[0].name, 128, L"LIGHTSPEED Receiver"); app.devices.items[0].healthy = true; app.selected = 0;
-            app.status_color = GREEN; copy_text(app.headline, 128, L"准备就绪"); copy_text(app.detail, 512, L"退出游戏后，选择鼠标对应的设备，点击「恢复滚轮」。"); log(L"检测到 1 个罗技 USB 设备"); controls();
+            app.status_color = GREEN; app.headline = {Text::Ready}; app.detail = {Text::ReadyDetail}; log({Text::FoundOne, 1, MessageFormat::Count}); controls();
         } else
 #endif
         start_work(false);
@@ -335,6 +371,11 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         if (id == REPAIR && notification == BN_CLICKED) start_work(true);
         else if (id == REFRESH && notification == BN_CLICKED) start_work(false);
         else if (id == SELECTOR && notification == BN_CLICKED) show_list();
+        else if (id == LANGUAGE && notification == BN_CLICKED) show_languages();
+        else if (id == LANGUAGE_LIST && notification == LBN_SELCHANGE) {
+            const LRESULT selected = SendMessageW(app.languages, LB_GETCURSEL, 0, 0);
+            if (selected >= 0) choose_language(static_cast<unsigned>(selected));
+        }
         else if (id == DEVICE_LIST && notification == LBN_SELCHANGE) {
             const LRESULT selected = SendMessageW(app.list, LB_GETCURSEL, 0, 0);
             if (selected >= 0) choose(static_cast<unsigned>(selected));
@@ -345,18 +386,29 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     case WM_LBUTTONDOWN: hide_list(); return 0;
     case WM_DRAWITEM: {
         const auto& item = *reinterpret_cast<DRAWITEMSTRUCT*>(lparam);
-        if (item.CtlID == DEVICE_LIST) {
+        if (item.CtlID == LANGUAGE_LIST) {
+            fill(item.hDC, item.rcItem, item.itemState & ODS_SELECTED ? RGB(43, 62, 76) : CARD);
+            if (item.itemID < 3) {
+                const wchar_t* labels[] = {tr(Text::AutoLanguage), tr(Text::ChineseLanguage), tr(Text::EnglishLanguage)};
+                RECT rectangle = item.rcItem; rectangle.left += n(9);
+                text(item.hDC, labels[item.itemID], rectangle, 12, 400, TEXT, DT_SINGLELINE | DT_VCENTER);
+            }
+            if (item.itemState & ODS_FOCUS) DrawFocusRect(item.hDC, &item.rcItem);
+        } else if (item.CtlID == DEVICE_LIST) {
             fill(item.hDC, item.rcItem, item.itemState & ODS_SELECTED ? RGB(43, 62, 76) : CARD);
             if (item.itemID < app.devices.count) {
                 RECT top = item.rcItem; top.left += n(10); top.right -= n(10); top.top += n(4); top.bottom = top.top + n(21);
-                text(item.hDC, app.devices.items[item.itemID].name, top, 13, 400, TEXT, DT_SINGLELINE | DT_END_ELLIPSIS);
+                text(item.hDC, device_name(app.devices.items[item.itemID]), top, 13, 400, TEXT, DT_SINGLELINE | DT_END_ELLIPSIS);
                 top.top += n(21); top.bottom = top.top + n(17);
                 text(item.hDC, app.devices.items[item.itemID].id, top, 10, 400, MUTED, DT_SINGLELINE | DT_END_ELLIPSIS);
             }
         } else draw_button(item);
         return TRUE;
     }
-    case WM_MEASUREITEM: reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight = static_cast<UINT>(n(46)); return TRUE;
+    case WM_MEASUREITEM: {
+        auto item = reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
+        item->itemHeight = static_cast<UINT>(n(item->CtlID == LANGUAGE_LIST ? 32 : 46)); return TRUE;
+    }
     case WM_CTLCOLORLISTBOX: SetTextColor(reinterpret_cast<HDC>(wparam), TEXT); SetBkColor(reinterpret_cast<HDC>(wparam), CARD); return reinterpret_cast<LRESULT>(app.brush);
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: {
@@ -405,7 +457,7 @@ unsigned launch(HINSTANCE instance) {
     WNDCLASSEXW window_class{}; window_class.cbSize = sizeof(window_class); window_class.lpfnWndProc = window_proc; window_class.hInstance = instance; window_class.lpszClassName = L"ScrollRescueCppWindow";
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW); window_class.hIcon = app.icon; window_class.hIconSm = app.small_icon;
     if (!RegisterClassExW(&window_class)) return 1;
-    const HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, window_class.lpszClassName, L"Scroll Rescue · 罗技滚轮恢复", WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN, work.left + (work.right - work.left - n(WIDTH)) / 2, work.top + (work.bottom - work.top - n(HEIGHT)) / 2, n(WIDTH), n(HEIGHT), nullptr, nullptr, instance, nullptr);
+    const HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, window_class.lpszClassName, tr(Text::WindowTitle), WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN, work.left + (work.right - work.left - n(WIDTH)) / 2, work.top + (work.bottom - work.top - n(HEIGHT)) / 2, n(WIDTH), n(HEIGHT), nullptr, nullptr, instance, nullptr);
     if (!window) { if (app.font) DeleteObject(app.font); if (app.brush) DeleteObject(app.brush); return 1; }
     const BOOL dark = TRUE; DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     const DWORD corners = 2; DwmSetWindowAttribute(window, 33, &corners, sizeof(corners));
@@ -422,11 +474,15 @@ unsigned launch(HINSTANCE instance) {
         if (got == -1) { DestroyWindow(window); break; }
         if (message.message == WM_KEYDOWN) {
             const HWND focus = GetFocus();
-            if (message.wParam == VK_ESCAPE && IsWindowVisible(app.list)) { hide_list(); SetFocus(app.selector); continue; }
+            if (message.wParam == VK_ESCAPE && (IsWindowVisible(app.list) || IsWindowVisible(app.languages))) {
+                const HWND owner = IsWindowVisible(app.languages) ? app.language : app.selector;
+                hide_list(); SetFocus(owner); continue;
+            }
             if (message.wParam == VK_RETURN) {
                 if (focus == app.list) { const LRESULT index = SendMessageW(app.list, LB_GETCURSEL, 0, 0); if (index >= 0) choose(static_cast<unsigned>(index)); continue; }
+                if (focus == app.languages) { const LRESULT index = SendMessageW(app.languages, LB_GETCURSEL, 0, 0); if (index >= 0) choose_language(static_cast<unsigned>(index)); continue; }
                 const unsigned id = static_cast<unsigned>(GetDlgCtrlID(focus));
-                if (focus && IsWindowEnabled(focus) && id >= REPAIR && id <= CLOSE) { SendMessageW(window, WM_COMMAND, id, 0); continue; }
+                if (focus && IsWindowEnabled(focus) && id >= REPAIR && id <= LANGUAGE && id != DEVICE_LIST) { SendMessageW(window, WM_COMMAND, id, 0); continue; }
             }
         }
         if (!IsDialogMessageW(window, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }

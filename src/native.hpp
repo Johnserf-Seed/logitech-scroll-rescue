@@ -8,13 +8,16 @@
 #include <shlobj.h>
 #include <objbase.h>
 #include <dwmapi.h>
+#include "locale.hpp"
 
 constexpr unsigned MAX_DEVICES = 32;
 struct Device {
     wchar_t id[MAX_DEVICE_ID_LEN];
     wchar_t name[128];
     bool healthy;
+    bool generic_name;
 };
+inline const wchar_t* device_name(const Device& device) { return device.generic_name ? tr(Text::FallbackDeviceName) : device.name; }
 struct DeviceList { Device items[MAX_DEVICES]; unsigned count; };
 
 inline unsigned length(const wchar_t* text) {
@@ -47,17 +50,17 @@ inline bool equal_text(const wchar_t* a, const wchar_t* b) {
 inline bool equal_id(const wchar_t* a, const wchar_t* b) {
     return a && b && CompareStringOrdinal(a, -1, b, -1, TRUE) == CSTR_EQUAL;
 }
-inline void error_code(wchar_t* output, const wchar_t* message, unsigned code) {
-    copy_text(output, 512, message);
-    append_text(output, 512, L"（错误 "); append_number(output, 512, code); append_text(output, 512, L"）。");
+inline void error_code(Message& output, Text message, unsigned code) {
+    output = {message, code, MessageFormat::Error};
 }
 
 bool valid_device_id(const wchar_t* id);
-bool list_devices(DeviceList& output, wchar_t* error);
-unsigned select_devices(const DeviceList& devices, const wchar_t* const* ids, unsigned count, bool all, DeviceList& output, wchar_t* error);
-unsigned restart_device(const wchar_t* id, wchar_t* error);
-unsigned elevate_devices(const DeviceList& selected, wchar_t* error);
-const wchar_t* result_message(unsigned code);
+bool list_devices(DeviceList& output, Message& error);
+unsigned select_devices(const DeviceList& devices, const wchar_t* const* ids, unsigned count, bool all, DeviceList& output, Message& error);
+unsigned restart_device(const wchar_t* id, Message& error);
+unsigned elevate_devices(const DeviceList& selected, Message& error);
+Text result_text(unsigned code);
+inline const wchar_t* result_message(unsigned code) { return tr(result_text(code)); }
 unsigned run_cli(int argc, wchar_t** argv);
 unsigned run_gui(HINSTANCE instance);
 void write_output(const wchar_t* text);

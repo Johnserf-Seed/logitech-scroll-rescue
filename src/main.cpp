@@ -4,6 +4,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     int argc = 0;
     wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) return 1;
+    initialize_language();
+    if (!configure_language(argc, argv)) {
+        const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (!output || output == INVALID_HANDLE_VALUE) AttachConsole(ATTACH_PARENT_PROCESS);
+        write_output(tr(Text::InvalidLanguage)); write_output(L"\r\n");
+        LocalFree(argv); return 2;
+    }
     unsigned result = 0;
     if (argc > 1) {
         const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);

@@ -15,7 +15,7 @@ if (Test-Path -LiteralPath $packagePath) {
 }
 New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'build\release\scroll-rescue.exe') -Destination $packagePath -Force
-foreach ($packageFile in @('scroll-rescue-cli.ps1','scroll-rescue-cli.cmd','README.md','LICENSE')) {
+foreach ($packageFile in @('scroll-rescue-cli.ps1','scroll-rescue-cli.cmd','README.md','README.en.md','LICENSE')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $packageFile) -Destination $packagePath -Force
 }
 $archive = Join-Path $projectRoot 'dist\scroll-rescue-cpp-windows-x64.zip'
