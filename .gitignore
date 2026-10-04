@@ -1,0 +1,6 @@
+/target/
+/dist/
+/tests/
+*.log
+*.exe
+*.zip
