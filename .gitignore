@@ -3,6 +3,7 @@
 /tests/
 *.exe
 *.obj
+*.res
 *.pdb
 *.ilk
 *.log

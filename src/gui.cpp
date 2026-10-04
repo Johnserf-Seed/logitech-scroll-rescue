@@ -1,4 +1,5 @@
 #include "native.hpp"
+#include "resource.h"
 
 namespace {
 constexpr int WIDTH = 600, HEIGHT = 620;
@@ -11,6 +12,7 @@ struct App {
     HWND window, selector, repair, refresh, minimize, close, list, hover;
     HFONT font;
     HBRUSH brush;
+    HICON icon, small_icon, caption_icon;
     unsigned scale = 100;
     DeviceList devices{};
     int selected = -1;
@@ -30,6 +32,20 @@ struct Job { HWND owner; bool restart; wchar_t id[MAX_DEVICE_ID_LEN]; };
 struct Outcome { bool restart, success; unsigned code; DeviceList devices; wchar_t error[512]; };
 
 int n(int value) { return MulDiv(value, static_cast<int>(app.scale), 100); }
+bool load_icons(HINSTANCE instance) {
+    const UINT dpi = static_cast<UINT>(n(96));
+    const auto resource = MAKEINTRESOURCEW(IDI_SCROLL_RESCUE);
+    const HICON icon = static_cast<HICON>(LoadImageW(instance, resource, IMAGE_ICON, GetSystemMetricsForDpi(SM_CXICON, dpi), GetSystemMetricsForDpi(SM_CYICON, dpi), LR_SHARED));
+    const HICON small_icon = static_cast<HICON>(LoadImageW(instance, resource, IMAGE_ICON, GetSystemMetricsForDpi(SM_CXSMICON, dpi), GetSystemMetricsForDpi(SM_CYSMICON, dpi), LR_SHARED));
+    const HICON caption = static_cast<HICON>(LoadImageW(instance, resource, IMAGE_ICON, n(24), n(24), LR_SHARED));
+    if (!icon || !small_icon || !caption) return false;
+    app.icon = icon; app.small_icon = small_icon; app.caption_icon = caption;
+    if (app.window) {
+        SendMessageW(app.window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icon));
+        SendMessageW(app.window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(small_icon));
+    }
+    return true;
+}
 RECT area(int x, int y, int width, int height) { return {n(x), n(y), n(x + width), n(y + height)}; }
 void log(const wchar_t* message) { copy_text(app.logs[0], 256, app.logs[1]); copy_text(app.logs[1], 256, message); }
 HFONT font(int size, int weight = 400) { return CreateFontW(-n(size), 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI"); }
@@ -61,8 +77,7 @@ void device_label(wchar_t* output, unsigned capacity) {
 
 void draw(HDC dc) {
     fill(dc, area(0, 0, WIDTH, HEIGHT), BG);
-    panel(dc, area(22, 15, 22, 22), GREEN, GREEN, 6);
-    stroke(dc, 32, 20, 32, 31, RGB(9, 45, 32), 2);
+    DrawIconEx(dc, n(21), n(14), app.caption_icon, n(24), n(24), 0, nullptr, DI_NORMAL);
     text(dc, L"SCROLL RESCUE", area(55, 17, 320, 24), 12, 700, TEXT);
     text(dc, L"v0.2", area(422, 18, 62, 22), 11, 400, MUTED, DT_RIGHT | DT_SINGLELINE);
     stroke(dc, 24, 52, 576, 52, BORDER);
@@ -292,6 +307,8 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     case WM_CREATE: {
         app.window = window;
         const HINSTANCE instance = reinterpret_cast<CREATESTRUCTW*>(lparam)->hInstance;
+        SendMessageW(window, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(app.icon));
+        SendMessageW(window, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(app.small_icon));
         app.selector = make_button(window, instance, SELECTOR, L"选择设备");
         app.repair = make_button(window, instance, REPAIR, L"恢复滚轮"); app.refresh = make_button(window, instance, REFRESH, L"刷新设备");
         app.minimize = make_button(window, instance, MINIMIZE, L"最小化"); app.close = make_button(window, instance, CLOSE, L"关闭");
@@ -352,6 +369,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     case WM_PRINTCLIENT: draw(reinterpret_cast<HDC>(wparam)); return 0;
     case WM_DPICHANGED: {
         hide_list(); app.scale = MulDiv(LOWORD(wparam), 100, 96);
+        load_icons(reinterpret_cast<HINSTANCE>(GetWindowLongPtrW(window, GWLP_HINSTANCE)));
         const RECT& proposed = *reinterpret_cast<RECT*>(lparam);
         SetWindowPos(window, nullptr, proposed.left, proposed.top, n(WIDTH), n(HEIGHT), SWP_NOZORDER | SWP_NOACTIVATE); controls(); return 0;
     }
@@ -383,9 +401,10 @@ unsigned launch(HINSTANCE instance) {
         if (max_height >= 60 && app.scale > max_height) app.scale = max_height;
         if (max_width >= 60 && app.scale > max_width) app.scale = max_width;
     }
-    WNDCLASSW window_class{}; window_class.lpfnWndProc = window_proc; window_class.hInstance = instance; window_class.lpszClassName = L"ScrollRescueCppWindow";
-    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW); window_class.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    if (!RegisterClassW(&window_class)) return 1;
+    if (!load_icons(instance)) return 1;
+    WNDCLASSEXW window_class{}; window_class.cbSize = sizeof(window_class); window_class.lpfnWndProc = window_proc; window_class.hInstance = instance; window_class.lpszClassName = L"ScrollRescueCppWindow";
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW); window_class.hIcon = app.icon; window_class.hIconSm = app.small_icon;
+    if (!RegisterClassExW(&window_class)) return 1;
     const HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, window_class.lpszClassName, L"Scroll Rescue · 罗技滚轮恢复", WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN, work.left + (work.right - work.left - n(WIDTH)) / 2, work.top + (work.bottom - work.top - n(HEIGHT)) / 2, n(WIDTH), n(HEIGHT), nullptr, nullptr, instance, nullptr);
     if (!window) { if (app.font) DeleteObject(app.font); if (app.brush) DeleteObject(app.brush); return 1; }
     const BOOL dark = TRUE; DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));

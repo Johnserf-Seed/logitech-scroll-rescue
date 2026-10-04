@@ -1,0 +1,3 @@
+#include "resource.h"
+
+IDI_SCROLL_RESCUE ICON "scroll-rescue.ico"
