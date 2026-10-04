@@ -51,7 +51,7 @@ struct Ui {
     color: u32,
     logs: Vec<String>,
     receiver: Option<Receiver<Event>>,
-    combo: HWND,
+    device_selector: HWND,
     repair_button: HWND,
     refresh_button: HWND,
     font: HFONT,
@@ -73,7 +73,7 @@ impl Ui {
             color: MUTED,
             logs: Vec::new(),
             receiver: None,
-            combo: ptr::null_mut(),
+            device_selector: ptr::null_mut(),
             repair_button: ptr::null_mut(),
             refresh_button: ptr::null_mut(),
             font: ptr::null_mut(),
@@ -131,22 +131,25 @@ impl Ui {
                 DeleteObject(self.font);
             }
             self.font = make_font(self.n(16), 400);
-            for handle in [self.combo, self.repair_button, self.refresh_button] {
+            for handle in [
+                self.device_selector,
+                self.repair_button,
+                self.refresh_button,
+            ] {
                 SendMessageW(handle, WM_SETFONT, self.font as usize, 0);
             }
-            SendMessageW(
-                self.combo,
-                CB_SETITEMHEIGHT,
-                usize::MAX,
-                self.n(32) as isize,
-            );
-            SendMessageW(self.combo, CB_SETITEMHEIGHT, 0, self.n(32) as isize);
+            let label = self
+                .selected
+                .and_then(|index| self.devices.get(index))
+                .map(|device| device.name.as_str())
+                .unwrap_or("选择鼠标对应的 USB 设备…");
+            SetWindowTextW(self.device_selector, wide(label).as_ptr());
             MoveWindow(
-                self.combo,
+                self.device_selector,
                 self.n(54),
                 self.n(214),
                 self.n(632),
-                self.n(240),
+                self.n(33),
                 1,
             );
             MoveWindow(
@@ -165,7 +168,10 @@ impl Ui {
                 self.n(56),
                 1,
             );
-            EnableWindow(self.combo, (!self.busy && !self.devices.is_empty()) as i32);
+            EnableWindow(
+                self.device_selector,
+                (!self.busy && !self.devices.is_empty()) as i32,
+            );
             EnableWindow(
                 self.repair_button,
                 (!self.busy && self.selected.is_some()) as i32,
@@ -183,7 +189,11 @@ impl Ui {
                     },
             );
             InvalidateRect(window, ptr::null(), 0);
-            for handle in [self.combo, self.repair_button, self.refresh_button] {
+            for handle in [
+                self.device_selector,
+                self.repair_button,
+                self.refresh_button,
+            ] {
                 InvalidateRect(handle, ptr::null(), 0);
             }
         }
@@ -216,30 +226,9 @@ impl Ui {
                     .map(|device| device.id.clone());
                 self.selected = None;
                 self.devices.clear();
-                unsafe {
-                    SendMessageW(self.combo, CB_RESETCONTENT, 0, 0);
-                }
-                let placeholder = wide("选择鼠标对应的 USB 设备…");
-                unsafe {
-                    SendMessageW(self.combo, CB_ADDSTRING, 0, placeholder.as_ptr() as isize);
-                }
                 match result {
                     Ok(devices) => {
                         self.devices = devices;
-                        for device in &self.devices {
-                            let label = wide(&format!(
-                                "{}  ·  {}",
-                                device.name,
-                                if device.healthy {
-                                    "在线"
-                                } else {
-                                    "状态异常"
-                                }
-                            ));
-                            unsafe {
-                                SendMessageW(self.combo, CB_ADDSTRING, 0, label.as_ptr() as isize);
-                            }
-                        }
                         self.selected = previous
                             .as_ref()
                             .and_then(|id| self.devices.iter().position(|device| &device.id == id));
@@ -269,14 +258,6 @@ impl Ui {
                         self.color = RED;
                         self.log("查询失败，请刷新后重试");
                     }
-                }
-                unsafe {
-                    SendMessageW(
-                        self.combo,
-                        CB_SETCURSEL,
-                        self.selected.map_or(0, |index| index + 1),
-                        0,
-                    );
                 }
             }
             Event::Repair(result) => match result {
@@ -420,6 +401,9 @@ unsafe fn button(
     scale: f64,
 ) {
     unsafe {
+        let backdrop = CreateSolidBrush(BG);
+        FillRect(dc, &area, backdrop);
+        DeleteObject(backdrop);
         let background = if !enabled {
             rgb(34, 44, 58)
         } else if primary {
@@ -711,20 +695,13 @@ unsafe extern "system" fn window_proc(
         match message {
             WM_CREATE => {
                 let instance = GetModuleHandleW(ptr::null());
-                let combo_class = wide("COMBOBOX");
                 let button_class = wide("BUTTON");
                 ui.brush = CreateSolidBrush(rgb(32, 43, 59));
-                ui.combo = CreateWindowExW(
+                ui.device_selector = CreateWindowExW(
                     0,
-                    combo_class.as_ptr(),
-                    ptr::null(),
-                    WS_CHILD
-                        | WS_VISIBLE
-                        | WS_TABSTOP
-                        | WS_VSCROLL
-                        | CBS_DROPDOWNLIST as u32
-                        | CBS_OWNERDRAWFIXED as u32
-                        | CBS_HASSTRINGS as u32,
+                    button_class.as_ptr(),
+                    wide("选择设备").as_ptr(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW as u32,
                     0,
                     0,
                     0,
@@ -762,11 +739,12 @@ unsafe extern "system" fn window_proc(
                     instance,
                     ptr::null(),
                 );
-                if ui.combo.is_null() || ui.repair_button.is_null() || ui.refresh_button.is_null() {
+                if ui.device_selector.is_null()
+                    || ui.repair_button.is_null()
+                    || ui.refresh_button.is_null()
+                {
                     return -1;
                 }
-                SetWindowTheme(ui.combo, wide("DarkMode_Explorer").as_ptr(), ptr::null());
-                SendMessageW(ui.combo, CB_SETMINVISIBLE, 8, 0);
                 ui.refresh();
                 ui.controls(window);
                 SetTimer(window, 1, 100, None);
@@ -799,13 +777,40 @@ unsafe extern "system" fn window_proc(
                 match id {
                     REPAIR if notification == BN_CLICKED as usize => ui.repair(),
                     REFRESH if notification == BN_CLICKED as usize => ui.refresh(),
-                    DEVICES if notification == CBN_SELCHANGE as usize => {
-                        let index = SendMessageW(ui.combo, CB_GETCURSEL, 0, 0);
-                        ui.selected = if index > 0 {
-                            Some(index as usize - 1)
-                        } else {
-                            None
-                        };
+                    DEVICES if notification == BN_CLICKED as usize => {
+                        let menu = CreatePopupMenu();
+                        if menu.is_null() {
+                            return 0;
+                        }
+                        for (index, device) in ui.devices.iter().enumerate() {
+                            let label = wide(&format!("{} · {}", device.name, device.id));
+                            AppendMenuW(
+                                menu,
+                                MF_STRING
+                                    | if ui.selected == Some(index) {
+                                        MF_CHECKED
+                                    } else {
+                                        0
+                                    },
+                                1000 + index,
+                                label.as_ptr(),
+                            );
+                        }
+                        let mut area: RECT = std::mem::zeroed();
+                        GetWindowRect(ui.device_selector, &mut area);
+                        let choice = TrackPopupMenu(
+                            menu,
+                            TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN,
+                            area.left,
+                            area.bottom,
+                            0,
+                            window,
+                            ptr::null(),
+                        );
+                        DestroyMenu(menu);
+                        if choice >= 1000 && (choice as usize - 1000) < ui.devices.len() {
+                            ui.selected = Some(choice as usize - 1000);
+                        }
                         ui.headline = if ui.selected.is_some() {
                             "准备就绪"
                         } else {
@@ -831,9 +836,10 @@ unsafe extern "system" fn window_proc(
                     let brush = CreateSolidBrush(color);
                     FillRect(item.hDC, &item.rcItem, brush);
                     DeleteObject(brush);
-                    let label = if item.itemID > 0 && item.itemID != u32::MAX {
+                    card(item.hDC, item.rcItem, color, BORDER, ui.n(6));
+                    let label = if let Some(index) = ui.selected {
                         ui.devices
-                            .get(item.itemID as usize - 1)
+                            .get(index)
                             .map(|device| {
                                 format!(
                                     "{}  ·  {}",
@@ -851,7 +857,7 @@ unsafe extern "system" fn window_proc(
                     };
                     let mut area = item.rcItem;
                     area.left += ui.n(10);
-                    area.right -= ui.n(6);
+                    area.right -= ui.n(32);
                     text(
                         item.hDC,
                         &label,
@@ -864,6 +870,17 @@ unsafe extern "system" fn window_proc(
                     if item.itemState & ODS_FOCUS != 0 {
                         DrawFocusRect(item.hDC, &item.rcItem);
                     }
+                    let mut arrow = item.rcItem;
+                    arrow.left = arrow.right - ui.n(30);
+                    text(
+                        item.hDC,
+                        "⌄",
+                        arrow,
+                        ui.n(16),
+                        400,
+                        MUTED,
+                        DT_SINGLELINE | DT_VCENTER | DT_CENTER,
+                    );
                     return 1;
                 }
                 let primary = item.CtlID as usize == REPAIR;
@@ -1052,6 +1069,8 @@ fn run_internal(qa_snapshot: Option<&std::path::Path>) -> Result<(), String> {
                         Some(REPAIR)
                     } else if focus == ui.refresh_button {
                         Some(REFRESH)
+                    } else if focus == ui.device_selector {
+                        Some(DEVICES)
                     } else {
                         None
                     }
