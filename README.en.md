@@ -4,6 +4,10 @@ English · [简体中文](README.md)
 
 If a Logitech mouse keeps scrolling after you exit VALORANT, this tool can restart its USB receiver. Includes a portable GUI and command line for Windows 10 version 2004 or later and Windows 11, x64. Bluetooth devices are outside its scope.
 
+## Screenshot
+
+![Scroll Rescue English interface](docs/images/screenshot-en.png)
+
 ## GUI
 
 Open `scroll-rescue.exe`, select your mouse's USB receiver, close the game and click **Restore scrolling**. Allow administrator approval when prompted. Your mouse will briefly disconnect. Test the wheel afterward; a device returning online does not confirm that the scrolling symptom is fixed.

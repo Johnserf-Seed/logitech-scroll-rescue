@@ -4,6 +4,10 @@
 
 退出瓦洛兰特后，罗技鼠标仍持续滚动时，可使用本工具尝试恢复 USB 接收器。提供中英文 GUI 和命令行入口。
 
+## 软件截图
+
+![Scroll Rescue 简体中文界面](docs/images/screenshot-zh-CN.png)
+
 ## 使用 GUI
 
 双击 `scroll-rescue.exe`，确认选中鼠标对应的 USB 设备，退出游戏后点击 **恢复滚轮**，允许 Windows 管理员授权。
