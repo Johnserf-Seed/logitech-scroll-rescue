@@ -85,7 +85,7 @@ void draw(HDC dc) {
         wchar_t line[260] = L"·  "; append_text(line, 260, app.logs[i]);
         text(dc, line, area(26, 559 + i * 23, 548, 22), 12, 400, TEXT, DT_SINGLELINE | DT_END_ELLIPSIS);
     }
-    text(dc, L"USB 接收器  /  命令行与 BAT 同时保留", area(24, 600, 552, 17), 10, 400, MUTED, DT_SINGLELINE | DT_CENTER);
+    text(dc, L"USB 接收器  /  支持命令行操作", area(24, 600, 552, 17), 10, 400, MUTED, DT_SINGLELINE | DT_CENTER);
 }
 
 void draw_button(const DRAWITEMSTRUCT& item) {

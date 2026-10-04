@@ -1,6 +1,6 @@
 # Scroll Rescue · 罗技滚轮恢复
 
-退出瓦洛兰特后，罗技鼠标仍持续滚动时，可使用本工具尝试恢复 USB 接收器。提供中文 GUI、命令行和 BAT 入口。
+退出瓦洛兰特后，罗技鼠标仍持续滚动时，可使用本工具尝试恢复 USB 接收器。提供中文 GUI 和命令行入口。
 
 ## 使用 GUI
 
@@ -67,18 +67,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scroll-rescue-cli.ps1 devi
 | 6 | 重启请求完成，设备尚未恢复在线 |
 | 7 | Windows 要求手动重启电脑 |
 
-## 保留 BAT 与命令
+## 手动恢复命令
 
-双击 `reset.bat`，或在终端执行：
-
-```bat
-reset.bat --dry-run
-reset.bat --all
-```
-
-原始独立脚本原样保存在 `legacy/reset-original.bat`。它会重启所有符合条件的罗技 USB 主设备；新的入口在多个设备时要求明确选择。
-
-原始命令仍可在管理员终端使用：
+也可在管理员终端使用以下命令：
 
 ```powershell
 pnputil /restart-device '从设备列表复制的完整设备 ID'
@@ -95,6 +86,6 @@ pnputil /restart-device '从设备列表复制的完整设备 ID'
 
 生成 `build/release/scroll-rescue.exe` 和 `dist/scroll-rescue-cpp-windows-x64.zip`。便携包只需一个 EXE，无需安装额外运行环境。
 
-这是独立工具，与 Logitech 或 Riot Games 无关联。基于已有 BAT 的恢复操作制作，未确认滚轮症状的具体原因。
+这是独立工具，与 Logitech 或 Riot Games 无关联。未确认滚轮症状的具体原因。
 
 Windows 命令说明：[Microsoft PnPUtil 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax#restart-device)。
