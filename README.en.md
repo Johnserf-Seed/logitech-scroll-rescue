@@ -4,6 +4,16 @@ English · [简体中文](README.md)
 
 If a Logitech mouse keeps scrolling after you exit VALORANT, this tool can restart its USB receiver. Includes a portable GUI and command line for Windows 10 version 2004 or later and Windows 11, x64. Bluetooth devices are outside its scope.
 
+## Platform support
+
+| Platform | Availability |
+| --- | --- |
+| Windows 10 version 2004 or later / Windows 11, x64 | GUI, command line and automated packages |
+| Windows ARM64 / x86 | No dedicated packages yet |
+| macOS / Linux | Not supported |
+
+This is currently a Windows-only application. Automated packaging does not change which operating systems it supports.
+
 ## Screenshot
 
 ![Scroll Rescue English interface](docs/images/screenshot-en.png)
@@ -69,5 +79,24 @@ Install the **Desktop development with C++** workload in Visual Studio Build Too
 ```
 
 The executable is written to `build/release/scroll-rescue.exe` and the portable package to `dist/scroll-rescue-cpp-windows-x64.zip`. No additional runtime installation is required.
+
+## GitHub automated builds
+
+Push this repository to GitHub and enable Actions:
+
+- Branch pushes and pull requests build the Windows x64 application, check its command line and create a portable package.
+- Use **Actions → Build and release → Run workflow** for a manual build.
+- Download `scroll-rescue-windows-x64` from the run's **Artifacts**. Extract it to obtain the portable ZIP and its SHA-256 checksum file. Build artifacts are kept for 30 days.
+- Pushing a `vMAJOR.MINOR.PATCH` tag that matches the application version publishes the portable ZIP and checksum under **Releases**. Branch pushes and manual builds do not create a release.
+
+The current version is `0.3.0`. After configuring the GitHub remote named `origin`, publish it with:
+
+```powershell
+git push origin main
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+For a new version, update the version numbers in `app.manifest`, `src/cli.cpp` and `src/translations.inc` before tagging. A mismatched tag stops publication. Already published versions are never overwritten.
 
 This independent tool is not affiliated with Logitech or Riot Games. The cause of the scrolling symptom has not been established.

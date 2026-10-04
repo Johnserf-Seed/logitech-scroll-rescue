@@ -4,6 +4,16 @@
 
 退出瓦洛兰特后，罗技鼠标仍持续滚动时，可使用本工具尝试恢复 USB 接收器。提供中英文 GUI 和命令行入口。
 
+## 平台支持
+
+| 平台 | 支持情况 |
+| --- | --- |
+| Windows 10 2004 及以上 / Windows 11，x64 | 支持 GUI、命令行和自动打包 |
+| Windows ARM64 / x86 | 暂未提供对应安装包 |
+| macOS / Linux | 暂不支持 |
+
+目前是 Windows 专用工具。自动打包不改变软件的平台支持范围。适用于 USB 连接的罗技设备，蓝牙设备不在恢复范围内。
+
 ## 软件截图
 
 ![Scroll Rescue 简体中文界面](docs/images/screenshot-zh-CN.png)
@@ -23,8 +33,6 @@
 ```powershell
 Start-Process .\scroll-rescue.exe -ArgumentList '--lang en'
 ```
-
-支持 Windows 10 2004 及以上版本、Windows 11，x64。适用于 USB 连接的罗技设备，蓝牙设备不在恢复范围内。
 
 ## 命令行
 
@@ -105,6 +113,25 @@ pnputil /restart-device '从设备列表复制的完整设备 ID'
 ```
 
 生成 `build/release/scroll-rescue.exe` 和 `dist/scroll-rescue-cpp-windows-x64.zip`。便携包只需一个 EXE，无需安装额外运行环境。
+
+## GitHub 自动打包
+
+将仓库推送到 GitHub，并启用 Actions 后：
+
+- 推送分支或提交 Pull Request：自动构建、检查命令行并生成 Windows x64 便携包。
+- 在 **Actions → Build and release → Run workflow** 中可手动打包。
+- 构建成功后，在该次运行的 **Artifacts** 中下载 `scroll-rescue-windows-x64`，解压后可得到便携 ZIP 和 SHA-256 校验文件；构建产物保留 30 天。
+- 推送与软件版本一致的 `v主版本.次版本.修订版本` 标签：自动在 **Releases** 发布便携 ZIP 和校验文件。普通分支推送和手动打包不会创建 Release。
+
+当前版本为 `0.3.0`，首次发布可在项目目录运行：
+
+```powershell
+git push origin main
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+需要先配置 GitHub 远程仓库 `origin`。发布其他版本前，请同步更新 `app.manifest`、`src/cli.cpp` 和 `src/translations.inc` 中的版本号。标签与软件版本不一致时，工作流会停止发布；已发布的版本不会被覆盖。
 
 这是独立工具，与 Logitech 或 Riot Games 无关联。未确认滚轮症状的具体原因。
 

@@ -1,0 +1,145 @@
+name: Build and release
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check release version
+        id: version
+        run: |
+          [xml]$manifest = Get-Content -LiteralPath app.manifest -Raw
+          $version = [version]$manifest.assembly.assemblyIdentity.version
+          $appVersion = '{0}.{1}.{2}' -f $version.Major, $version.Minor, $version.Build
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$appVersion") {
+            throw "Tag must match the application version: v$appVersion"
+          }
+          "app_version=$appVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        run: .\scripts\build.ps1
+
+      - name: Check command line
+        env:
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+        run: |
+          function Invoke-CommandLine([string]$arguments) {
+            $info = [Diagnostics.ProcessStartInfo]::new()
+            $info.FileName = (Resolve-Path -LiteralPath 'build\release\scroll-rescue.exe').Path
+            $info.Arguments = $arguments
+            $info.UseShellExecute = $false
+            $info.CreateNoWindow = $true
+            $info.RedirectStandardOutput = $true
+            $info.RedirectStandardError = $true
+            $info.StandardOutputEncoding = [Text.Encoding]::UTF8
+            $info.StandardErrorEncoding = [Text.Encoding]::UTF8
+            $process = [Diagnostics.Process]::new()
+            $process.StartInfo = $info
+            try {
+              if (-not $process.Start()) { throw 'Could not start the command line' }
+              $outputTask = $process.StandardOutput.ReadToEndAsync()
+              $errorTask = $process.StandardError.ReadToEndAsync()
+              if (-not $process.WaitForExit(15000)) {
+                $process.Kill()
+                throw "Command timed out: $arguments"
+              }
+              if ($process.ExitCode -ne 0) { throw "Command failed: $arguments; $($errorTask.Result)" }
+              return $outputTask.Result.Trim()
+            } finally {
+              $process.Dispose()
+            }
+          }
+          $expectedVersion = "Scroll Rescue $env:APP_VERSION"
+          if ((Invoke-CommandLine '--version') -cne "$expectedVersion (C++)") { throw 'Executable version does not match the manifest' }
+          foreach ($language in @('zh-CN', 'en')) {
+            $help = Invoke-CommandLine "--lang $language --help"
+            if (-not $help.StartsWith($expectedVersion) -or -not $help.Contains('--dry-run')) {
+              throw "Missing command line help for $language"
+            }
+          }
+          $devices = Invoke-CommandLine '--lang en devices --json'
+          if (-not $devices.StartsWith('[')) { throw 'Expected a JSON device list' }
+          $null = ConvertFrom-Json -InputObject $devices -ErrorAction Stop
+          Write-Output 'Version, Chinese/English help and device listing passed.'
+
+      - name: Package
+        run: |
+          .\scripts\package.ps1 -SkipBuild
+          $archive = Get-Item -LiteralPath 'dist\scroll-rescue-cpp-windows-x64.zip'
+          $hash = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($archive.Name)" | Set-Content -LiteralPath "$($archive.FullName).sha256" -Encoding ascii
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scroll-rescue-windows-x64
+          path: |
+            dist/scroll-rescue-cpp-windows-x64.zip
+            dist/scroll-rescue-cpp-windows-x64.zip.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  release:
+    name: Publish version
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download portable package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: scroll-rescue-windows-x64
+          path: release
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $archive = Get-Item -LiteralPath 'release\scroll-rescue-cpp-windows-x64.zip'
+          $checksum = Get-Item -LiteralPath "$($archive.FullName).sha256"
+          $expectedHash = (Get-Content -LiteralPath $checksum.FullName -Raw).Trim().Split(' ')[0]
+          $actualHash = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash
+          if ($expectedHash -ine $actualHash) { throw 'Package checksum does not match' }
+          $assets = @($archive.FullName, $checksum.FullName)
+          $existing = & gh release view $env:RELEASE_TAG --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if (-not ($existing | ConvertFrom-Json).isDraft) {
+              throw 'This version is already published. Use a new version tag.'
+            }
+            & gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            & gh release create $env:RELEASE_TAG @assets --verify-tag --draft --title "Scroll Rescue $env:RELEASE_TAG" --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not prepare the release' }
+          & gh release edit $env:RELEASE_TAG --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the release' }
