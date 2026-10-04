@@ -1,8 +1,20 @@
-# Scroll Rescue
+# Scroll Rescue · Logitech mouse scroll recovery for VALORANT
 
 English · [简体中文](README.md)
 
-If a Logitech mouse keeps scrolling after you exit VALORANT, this tool can restart its USB receiver. Includes a portable GUI and command line for Windows 10 version 2004 or later and Windows 11, x64. Bluetooth devices are outside its scope.
+[![Build](https://github.com/Johnserf-Seed/logitech-scroll-rescue/actions/workflows/build.yml/badge.svg)](https://github.com/Johnserf-Seed/logitech-scroll-rescue/actions/workflows/build.yml)
+[![Windows x64](https://img.shields.io/badge/platform-Windows%20x64-0078D4)](#platform-support)
+[![MIT License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+Scroll Rescue is a lightweight, portable Windows utility for Logitech mouse infinite scrolling or continuous scrolling after VALORANT. It offers a graphical interface (GUI) and command line (CLI), with English and Simplified Chinese localization and no additional runtime installation.
+
+For Logitech USB mice and LIGHTSPEED receivers, select the matching device and attempt recovery, then check the wheel yourself. Supports Windows 10 version 2004 or later and Windows 11, x64. Bluetooth devices are outside its scope.
+
+## Download
+
+Get `scroll-rescue-cpp-windows-x64.zip` from [Releases](https://github.com/Johnserf-Seed/logitech-scroll-rescue/releases), extract the portable package and open `scroll-rescue.exe`.
+
+If no release is available yet, or you want the latest build, open [GitHub Actions](https://github.com/Johnserf-Seed/logitech-scroll-rescue/actions/workflows/build.yml) and download `scroll-rescue-windows-x64` from a successful run's **Artifacts**. A GitHub login is required to download build artifacts.
 
 ## Platform support
 
@@ -16,7 +28,7 @@ This is currently a Windows-only application. Automated packaging does not chang
 
 ## Screenshot
 
-![Scroll Rescue English interface](docs/images/screenshot-en.png)
+![Scroll Rescue Windows GUI for Logitech mouse infinite scrolling after VALORANT](docs/images/screenshot-en.png)
 
 ## GUI
 
